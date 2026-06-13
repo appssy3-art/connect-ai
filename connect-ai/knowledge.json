@@ -280,5 +280,69 @@
     "category": "marketing",
     "source": "ezerai",
     "verified": true
+  },
+  {
+    "id": "n1781342791680926",
+    "text": "# Connect AI — Brain-GitHub 동기화 아키텍처 레퍼런스\n# 🧠 Connect AI — Brain-GitHub 동기화 아키텍처 레퍼런스\n\n> **이 문서는 어떤 AI든 이 코드베이스의 깃허브 동기화 구조를 즉시 파악할 수 있도록 만든 레퍼런스입니다.**\n\n---\n\n## 1. 프로젝트 위치 및 핵심 파일\n\n```\n/Users/jay/로컬테스트/local-ai-coder/\n├── package.json          ← 설정 스키마 (contributes.configuration)\n├── src/\n│   └── extension.ts      ← 모든 로직이 담긴 단일 파일 (2600+ lines)\n├── out/\n│   └── extension.js      ← 빌드 결과물 (esbuild)\n├── brain-viz.html        ← 지식 네트워크 시각화 HTML\n└── system_schema.json    ← AI 에이전트 도구 스키마\n```\n\n**핵심 파일은 딱 2개:**\n- `package.json` — VS Code 설정 스키마 선언\n- `src/extension.ts` — 모든 동기화 로직\n\n---\n\n## 2. VS Code 설정 키 (Configuration)\n\n`package.json` → `contributes.configuration.properties`에 선언됨:\n\n| 설정 키 | 용도 | 기본값 |\n|---------|------|--------|\n| `connectAiLab.localBrainPath` | 로컬 지식 폴더 절대 경로 | `\"\"` (비면 `~/.connect-ai-brain`) |\n| `connectAiLab.secondBrainRepo` | 깃허브 저장소 URL | `\"\"` |\n| `connectAiLab.ollamaUrl` | AI 서버 주소 | `http://127.0.0.1:11434` |\n| `connectAiLab.defaultModel` | AI 모델 이름 | `gemma4:e2b` |\n| `connectAiLab.requestTimeout` | AI 응답 대기 시간(초) | `300` |\n\n**⚠️ 설정은 `vscode.ConfigurationTarget.Global`로 저장됨** (워크스페이스가 아닌 전역)\n\n---\n\n## 3. 핵심 코드 섹션 (extension.ts 내 위치)\n\n### 3-A. 설정 읽기 함수들 (상단)\n\n```typescript\ngetConfig()                  // 모든 설정값을 한 번에 읽음\n_getBrainDir()               // 로컬 지식 폴더 경로 반환 (미설정 시 ~/.connect-ai-brain)\n_isBrainDirExplicitlySet()   // 사용자가 명시적으로 폴더를 지정했는지 boolean\n_ensureBrainDir()            // 폴더 미설정 시 OS 폴더선택 다이얼로그 강제 팝업\n```\n\n### 3-B. _safeGitAutoSync\n\n**Brain Pack 주입 후 자동으로 호출되는 동기화 함수 (동기/Blocking)**\n\n호출되는 곳:\n- `/api/brain-inject` 엔드포인트 (웹에서 주입)\n- `_handleInjectLocalBrain` (⚡ 버튼 주입)\n- P-Reinforce 구조화 완료 후\n\n동작 순서:\n1. `git status` → git repo인지 확인 (아니면 조용히 리턴)\n2. `git remote get-url origin` → remote 등록 여부 확인\n3. remote 없으면 → `secondBrainRepo` 설정에서 가져와서 자동 등록\n4. `git branch -M main` → 브랜치명 통일\n5. `git add .` → `git commit`\n6. `git pull origin main` (충돌 시 로컬 우선: `-X ours`)\n7. `git push -u origin main` (실패 시 force push 시도)\n\n### 3-C. _syncSecondBrain\n\n**사용자가 🧠 메뉴 → \"깃허브 동기화\" 클릭 시 호출 (비동기/Async)**\n\n동작 순서:\n1. 폴더 미설정 → `_ensureBrainDir()` 강제\n2. `secondBrainRepo` 미설정 → URL 입력창 팝업\n3. `.git` 없으면 → `git init`\n4. `git branch -M main`\n5. `git remote remove origin` → `git remote add origin`\n6. `git add .` → `git commit`\n7. `git fetch` → `git pull` (충돌 시 로컬 우선)\n8. `git push -u origin main`\n9. 성공 시 → 지식 모드 자동 ON\n\n### 3-D. _handleBrainMenu\n\n**🧠 아이콘 클릭 시 QuickPick 메뉴:**\n\n| 메뉴 | action 키 | 하는 일 |\n|------|-----------|---------|\n| 📂 내 지식 목록 | `listFiles` | .md 파일 목록 보여줌 |\n| 🔄 깃허브 동기화 | `githubSync` | `_syncSecondBrain()` 호출 |\n| 🔗 깃허브 주소 변경 | `changeGithub` | `secondBrainRepo` 설정 변경 |\n| 📁 폴더 위치 바꾸기 | `changeFolder` | `localBrainPath` 변경 + git re-init |\n| 🌐 지식 지도 | `viewGraph` | brain-viz.html 네트워크 시각화 |\n\n---\n\n## 4. 데이터 흐름 (Brain Pack 주입 ~ GitHub 동기화)\n\n```\n[웹사이트] POST http://127.0.0.1:4825/api/brain-inject\n    │   { title: \"MrBeast 전략\", markdown: \"...\" }\n    ▼\n[extension.ts] HTTP 서버 (Port 4825)\n    │\n    ├─ 1. 폴더 체크: _isBrainDirExplicitlySet()\n    │     └─ NO → _ensureBrainDir() → OS 폴더 선택 다이얼로그\n    │\n    ├─ 2. 파일 저장: {brainDir}/00_Raw/2026-04-26/MrBeast_전략.md\n    │\n    ├─ 3. UI 피드백: 매트릭스 터미널 애니메이션 + \"I know {title}\" 메시지\n    │\n    └─ 4. _safeGitAutoSync() 호출\n          │\n          ├─ git status (git repo인가?)\n          ├─ git remote get-url origin (remote 있나?)\n          │     └─ 없으면 → secondBrainRepo 설정에서 가져와 등록\n          ├─ git add . → git commit\n          ├─ git pull origin main (원격 변경사항 병합)\n          └─ git push -u origin main (클라우드 백업)\n```\n\n---\n\n## 5. 로컬 지식 폴더 구조\n\n```\n{brainDir}/                     ← localBrainPath 설정값\n├── .git/                       ← git init으로 생성됨\n├── 00_Raw/                     ← Brain Pack 원본 저장소\n│   ├── 2026-04-22/\n│   │   └── MrBeast_전략.md\n│   └── 2026-04-26/\n│       └── 유튜브_알고리즘.md\n├── 10_Wiki/                    ← P-Reinforce 구조화된 지식\n│   ├── 💡 Topics/\n│   ├── 🛠️ Projects/\n│   ├── ⚖️ Decisions/\n│   └── 🚀 Skills/\n└── README.md\n```\n\n---\n\n## 6. 근본 전제조건 & 디버깅 체크리스트\n\n### Git 동기화가 되려면 반드시 필요한 것:\n\n1. **수강생 PC에",
+    "tags": [
+      "git",
+      "brain",
+      "origin",
+      "동기화",
+      "지식",
+      "폴더"
+    ],
+    "ts": 1781342791680,
+    "category": "coding",
+    "source": "me",
+    "verified": true
+  },
+  {
+    "id": "n17813427916811886",
+    "text": "# Pixel Assets License\n# Pixel Assets License\n\nThe pixel character sprites in `assets/pixel/characters/` are sourced from:\n\n**Modern Interiors** by **LimeZu**\n- Source: https://limezu.itch.io/moderninteriors\n- License: Used in this project under permission obtained by the project owner.\n\nThe 7 character files (`ceo.png`, `youtube.png`, `instagram.png`, `designer.png`,\n`developer.png`, `business.png`, `secretary.png`) are renamed copies of\n`Premade_Character_48x48_01.png` through `Premade_Character_48x48_07.png`\nfrom the Modern Interiors asset pack.\n\nIf you redistribute or fork this extension, please verify your own license\nto redistribute these assets, or replace them with assets you have the\nright to use.",
+    "tags": [
+      "png",
+      "assets",
+      "pixel",
+      "license",
+      "character",
+      "from"
+    ],
+    "ts": 1781342791681,
+    "category": "marketing",
+    "source": "me",
+    "verified": true
+  },
+  {
+    "id": "n17813427916819676",
+    "text": "# IMPORT MANUAL\nRPG MAKER MV/MZ MANUAL\r\n--\r\n1)IMPORTING WALLS AND FLOORS\r\n- Create a new project on the RPG_MAKER\r\n- On the upper part of the screen, select Tools->Resource manager\r\n- Click on img/tilesets and then on the Import button\r\n- Select the walls and floors files from the MV folder (Modern_Interiors->4_RPG_MAKER_MV)\r\n- On the upper part of the screen, select Tools->Database, then Tilesets\r\n- Add any of the previously added tilesets to the Tilesets pages A2 for the floors, A4 for the walls.\r\n\r\n\r\n\r\nIF YOU NEED FURTHER HELP, COMMENT HERE ---> https://limezu.itch.io/moderninteriors",
+    "tags": [
+      "tilesets",
+      "rpg",
+      "maker",
+      "walls",
+      "floors",
+      "select"
+    ],
+    "ts": 1781342791681,
+    "category": "marketing",
+    "source": "me",
+    "verified": true
+  },
+  {
+    "id": "n17813427916811375",
+    "text": "# READ ME\nHey, thanks for downloading!\r\n\r\nIf you encounter any problem or have a request, comment here --> https://limezu.itch.io/modernoffice\r\n\r\nfor commissions --> limezu.pixel@gmail.com",
+    "tags": [
+      "limezu",
+      "read",
+      "hey",
+      "thanks",
+      "downloading",
+      "you"
+    ],
+    "ts": 1781342791681,
+    "category": "marketing",
+    "source": "me",
+    "verified": true
   }
 ]
